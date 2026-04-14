@@ -1474,6 +1474,21 @@ header {
   margin-bottom: 14px;
 }
 
+.modal-alert {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 14px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.modal-alert.is-danger {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: rgba(220, 38, 38, 0.18);
+}
+
 .modal-option-row {
   margin-bottom: 14px;
 }

@@ -108,6 +108,7 @@ const inputAutoStepDelaySeconds = document.getElementById('input-auto-step-delay
 const autoStartModal = document.getElementById('auto-start-modal');
 const autoStartTitle = autoStartModal?.querySelector('.modal-title');
 const autoStartMessage = document.getElementById('auto-start-message');
+const autoStartAlert = document.getElementById('auto-start-alert');
 const modalOptionRow = document.getElementById('modal-option-row');
 const modalOptionInput = document.getElementById('modal-option-input');
 const modalOptionText = document.getElementById('modal-option-text');
@@ -255,6 +256,16 @@ function resetActionModalOption() {
   modalOptionText.textContent = '不再提示';
 }
 
+function resetActionModalAlert() {
+  if (!autoStartAlert) {
+    return;
+  }
+
+  autoStartAlert.hidden = true;
+  autoStartAlert.textContent = '';
+  autoStartAlert.className = 'modal-alert';
+}
+
 function resetActionModalButtons() {
   const buttons = [btnAutoStartCancel, btnAutoStartRestart, btnAutoStartContinue];
   buttons.forEach((button) => {
@@ -297,6 +308,21 @@ function configureActionModalOption(option) {
   modalOptionText.textContent = option.label || '不再提示';
 }
 
+function configureActionModalAlert(alert) {
+  if (!autoStartAlert) {
+    return;
+  }
+
+  if (!alert?.text) {
+    resetActionModalAlert();
+    return;
+  }
+
+  autoStartAlert.hidden = false;
+  autoStartAlert.textContent = alert.text;
+  autoStartAlert.className = `modal-alert${alert.tone === 'danger' ? ' is-danger' : ''}`;
+}
+
 function resolveModalChoice(choice) {
   const optionChecked = Boolean(modalOptionInput?.checked);
   const result = typeof modalResultBuilder === 'function'
@@ -308,13 +334,14 @@ function resolveModalChoice(choice) {
   }
   modalResultBuilder = null;
   resetActionModalButtons();
+  resetActionModalAlert();
   resetActionModalOption();
   if (autoStartModal) {
     autoStartModal.hidden = true;
   }
 }
 
-function openActionModal({ title, message, actions, option, buildResult }) {
+function openActionModal({ title, message, actions, option, alert, buildResult }) {
   if (!autoStartModal) {
     return Promise.resolve(null);
   }
@@ -334,6 +361,7 @@ function openActionModal({ title, message, actions, option, buildResult }) {
   buttonSlots.forEach((button, index) => {
     configureActionModalButton(button, currentModalActions[index]);
   });
+  configureActionModalAlert(alert);
   configureActionModalOption(option);
   autoStartModal.hidden = false;
 
@@ -358,10 +386,11 @@ function openAutoStartChoiceDialog(startStep, options = {}) {
   });
 }
 
-async function openConfirmModal({ title, message, confirmLabel = '确认', confirmVariant = 'btn-primary' }) {
+async function openConfirmModal({ title, message, confirmLabel = '确认', confirmVariant = 'btn-primary', alert = null }) {
   const choice = await openActionModal({
     title,
     message,
+    alert,
     actions: [
       { id: null, label: '取消', variant: 'btn-ghost' },
       { id: 'confirm', label: confirmLabel, variant: confirmVariant },
@@ -375,6 +404,7 @@ async function openConfirmModalWithOption({
   message,
   confirmLabel = '确认',
   confirmVariant = 'btn-primary',
+  alert = null,
   optionLabel = '不再提示',
   optionChecked = false,
   optionDisabled = false,
@@ -382,6 +412,7 @@ async function openConfirmModalWithOption({
   const result = await openActionModal({
     title,
     message,
+    alert,
     actions: [
       { id: null, label: '取消', variant: 'btn-ghost' },
       { id: 'confirm', label: confirmLabel, variant: confirmVariant },
@@ -1063,7 +1094,7 @@ function applyAutoRunStatus(payload = currentAutoRun) {
   btnAutoRun.disabled = currentAutoRun.autoRunning;
   btnFetchEmail.disabled = locked
     || usesGeneratedAliasMailProvider(selectMailProvider.value)
-    || isCustomEmailGeneratorSelected();
+    || isCustomMailProvider();
   inputEmail.disabled = locked;
   inputAutoSkipFailures.disabled = scheduled;
 
@@ -1102,7 +1133,7 @@ function applyAutoRunStatus(payload = currentAutoRun) {
       inputEmail.disabled = false;
       if (!locked) {
         btnFetchEmail.disabled = usesGeneratedAliasMailProvider(selectMailProvider.value)
-          || isCustomEmailGeneratorSelected();
+          || isCustomMailProvider();
       }
       break;
   }
@@ -1163,8 +1194,15 @@ function applySettingsState(state) {
   inputSub2ApiEmail.value = state?.sub2apiEmail || '';
   inputSub2ApiPassword.value = state?.sub2apiPassword || '';
   inputSub2ApiGroup.value = state?.sub2apiGroupName || '';
-  selectMailProvider.value = state?.mailProvider || '163';
-  selectEmailGenerator.value = state?.emailGenerator || 'duck';
+  const restoredMailProvider = isCustomMailProvider(state?.mailProvider)
+    || ['hotmail-api', '163', '163-vip', 'qq', 'inbucket', '2925'].includes(String(state?.mailProvider || '').trim())
+    ? String(state?.mailProvider || '163').trim()
+    : (String(state?.emailGenerator || '').trim().toLowerCase() === 'custom'
+      || String(state?.emailGenerator || '').trim().toLowerCase() === 'manual'
+      ? 'custom'
+      : '163');
+  selectMailProvider.value = restoredMailProvider;
+  selectEmailGenerator.value = String(state?.emailGenerator || '').trim().toLowerCase() === 'cloudflare' ? 'cloudflare' : 'duck';
   inputEmailPrefix.value = state?.emailPrefix || '';
   inputInbucketHost.value = state?.inbucketHost || '';
   inputInbucketMailbox.value = state?.inbucketMailbox || '';
@@ -1433,11 +1471,12 @@ function syncPasswordField(state) {
   inputPassword.value = state.customPassword || state.password || '';
 }
 
+function isCustomMailProvider(provider = selectMailProvider.value) {
+  return String(provider || '').trim().toLowerCase() === 'custom';
+}
+
 function getSelectedEmailGenerator() {
   const generator = String(selectEmailGenerator.value || '').trim().toLowerCase();
-  if (generator === 'custom' || generator === 'manual') {
-    return 'custom';
-  }
   if (generator === 'cloudflare') {
     return 'cloudflare';
   }
@@ -1445,15 +1484,6 @@ function getSelectedEmailGenerator() {
 }
 
 function getEmailGeneratorUiCopy() {
-  if (getSelectedEmailGenerator() === 'custom') {
-    return {
-      buttonLabel: '自定义邮箱',
-      placeholder: '请填写本轮要使用的注册邮箱',
-      successVerb: '使用',
-      label: '自定义邮箱',
-    };
-  }
-
   if (getSelectedEmailGenerator() === 'cloudflare') {
     return {
       buttonLabel: '生成',
@@ -1471,8 +1501,25 @@ function getEmailGeneratorUiCopy() {
   };
 }
 
-function isCustomEmailGeneratorSelected() {
-  return getSelectedEmailGenerator() === 'custom';
+function getCustomMailProviderUiCopy() {
+  return {
+    buttonLabel: '自定义邮箱',
+    placeholder: '请填写本轮要使用的注册邮箱',
+    successVerb: '使用',
+    label: '自定义邮箱',
+  };
+}
+
+function getCustomVerificationPromptCopy(step) {
+  const verificationLabel = step === 4 ? '注册验证码' : '登录验证码';
+  return {
+    title: `手动处理${verificationLabel}`,
+    message: `当前邮箱服务为“自定义邮箱”。请先在页面中手动输入${verificationLabel}，并确认已经进入下一页面后，再点击确认。`,
+    alert: {
+      text: `点击确认后会跳过步骤 ${step}。`,
+      tone: 'danger',
+    },
+  };
 }
 
 function getHotmailAccounts(state = latestState) {
@@ -1490,6 +1537,12 @@ function getCurrentHotmailEmail(state = latestState) {
 
 function getMailProviderLoginConfig(provider = selectMailProvider.value) {
   return MAIL_PROVIDER_LOGIN_CONFIGS[String(provider || '').trim()] || null;
+}
+
+function getMailProviderLoginUrl(provider = selectMailProvider.value) {
+  const config = getMailProviderLoginConfig(provider);
+  const url = String(config?.url || '').trim();
+  return url ? url : '';
 }
 
 function isCurrentEmailManagedByHotmail(state = latestState) {
@@ -1525,8 +1578,9 @@ function updateMailLoginButtonState() {
   }
 
   const config = getMailProviderLoginConfig();
-  btnMailLogin.disabled = !config;
-  btnMailLogin.title = config ? `打开 ${config.label} 登录页` : '当前邮箱服务无需网页登录';
+  const loginUrl = getMailProviderLoginUrl();
+  btnMailLogin.disabled = !loginUrl;
+  btnMailLogin.title = loginUrl ? `打开 ${config.label} 登录页` : '当前邮箱服务没有可跳转的登录页';
 }
 
 function getHotmailAccountsByUsage(mode = 'all', state = latestState) {
@@ -1738,8 +1792,8 @@ function updateMailProviderUI() {
   const useGeneratedAlias = usesGeneratedAliasMailProvider(selectMailProvider.value);
   const useInbucket = selectMailProvider.value === 'inbucket';
   const useHotmail = selectMailProvider.value === 'hotmail-api';
-  const useCustomEmail = !useGeneratedAlias && !useHotmail && isCustomEmailGeneratorSelected();
-  const useEmailGenerator = !useHotmail && !useGeneratedAlias;
+  const useCustomEmail = isCustomMailProvider();
+  const useEmailGenerator = !useHotmail && !useGeneratedAlias && !useCustomEmail;
   updateMailLoginButtonState();
   rowEmailPrefix.style.display = useGeneratedAlias ? '' : 'none';
   const hotmailServiceMode = getSelectedHotmailServiceMode();
@@ -1763,7 +1817,7 @@ function updateMailProviderUI() {
   }
   labelEmailPrefix.textContent = '邮箱前缀';
   inputEmailPrefix.placeholder = '例如 abc';
-  selectEmailGenerator.disabled = useHotmail || useGeneratedAlias;
+  selectEmailGenerator.disabled = useHotmail || useGeneratedAlias || useCustomEmail;
   if (rowHotmailServiceMode) {
     rowHotmailServiceMode.style.display = useHotmail ? '' : 'none';
   }
@@ -1775,7 +1829,7 @@ function updateMailProviderUI() {
   }
   btnFetchEmail.hidden = useHotmail || useCustomEmail;
   inputEmail.readOnly = useHotmail || useGeneratedAlias;
-  const uiCopy = getEmailGeneratorUiCopy();
+  const uiCopy = useCustomEmail ? getCustomMailProviderUiCopy() : getEmailGeneratorUiCopy();
   inputEmail.placeholder = useHotmail
     ? '由 Hotmail 账号池自动分配'
     : (use2925 ? '步骤 3 自动生成 2925 邮箱并回填' : uiCopy.placeholder);
@@ -2042,8 +2096,8 @@ function escapeHtml(text) {
 async function fetchGeneratedEmail(options = {}) {
   const { showFailureToast = true } = options;
   const uiCopy = getEmailGeneratorUiCopy();
-  if (isCustomEmailGeneratorSelected()) {
-    throw new Error('当前邮箱生成方式为自定义邮箱，请直接填写注册邮箱。');
+  if (isCustomMailProvider()) {
+    throw new Error('当前邮箱服务为自定义邮箱，请直接填写注册邮箱。');
   }
   const defaultLabel = uiCopy.buttonLabel;
   btnFetchEmail.disabled = true;
@@ -2344,8 +2398,8 @@ document.querySelectorAll('.step-btn').forEach(btn => {
         } else {
           let email = inputEmail.value.trim();
           if (!email) {
-            if (isCustomEmailGeneratorSelected()) {
-              showToast('当前邮箱生成方式为自定义邮箱，请先填写注册邮箱后再执行第 3 步。', 'warn');
+            if (isCustomMailProvider()) {
+              showToast('当前邮箱服务为自定义邮箱，请先填写注册邮箱后再执行第 3 步。', 'warn');
               return;
             }
             try {
@@ -2373,7 +2427,7 @@ document.querySelectorAll('.step-btn').forEach(btn => {
 });
 
 btnFetchEmail.addEventListener('click', async () => {
-  if (selectMailProvider.value === 'hotmail-api' || isCustomEmailGeneratorSelected()) {
+  if (selectMailProvider.value === 'hotmail-api' || isCustomMailProvider()) {
     return;
   }
   await fetchGeneratedEmail().catch(() => { });
@@ -2627,12 +2681,13 @@ btnToggleVpsPassword.addEventListener('click', () => {
 
 btnMailLogin?.addEventListener('click', async () => {
   const config = getMailProviderLoginConfig();
-  if (!config) {
+  const loginUrl = getMailProviderLoginUrl();
+  if (!config || !loginUrl) {
     return;
   }
 
   try {
-    await chrome.tabs.create({ url: config.url, active: true });
+    await chrome.tabs.create({ url: loginUrl, active: true });
   } catch (err) {
     showToast(`打开${config.label}失败：${err.message}`, 'error');
   }
@@ -2783,7 +2838,7 @@ btnAutoContinue.addEventListener('click', async () => {
   const email = inputEmail.value.trim();
   if (!email) {
     showToast(
-      isCustomEmailGeneratorSelected() ? '请先填写自定义注册邮箱。' : '请先获取或粘贴邮箱。',
+      isCustomMailProvider() ? '请先填写自定义注册邮箱。' : '请先获取或粘贴邮箱。',
       'warn'
     );
     return;
@@ -3110,8 +3165,26 @@ inputAutoStepDelaySeconds.addEventListener('blur', () => {
 // Listen for Background broadcasts
 // ============================================================
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message.type) {
+    case 'REQUEST_CUSTOM_VERIFICATION_BYPASS_CONFIRMATION': {
+      (async () => {
+        const step = Number(message.payload?.step);
+        const promptCopy = getCustomVerificationPromptCopy(step);
+        const confirmed = await openConfirmModal({
+          title: promptCopy.title,
+          message: promptCopy.message,
+          confirmLabel: '确认跳过',
+          confirmVariant: 'btn-danger',
+          alert: promptCopy.alert,
+        });
+        sendResponse({ confirmed });
+      })().catch((err) => {
+        sendResponse({ error: err.message });
+      });
+      return true;
+    }
+
     case 'LOG_ENTRY':
       appendLog(message.payload);
       if (message.payload.level === 'error') {

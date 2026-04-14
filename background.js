@@ -230,6 +230,7 @@ function normalizePanelMode(value = '') {
 function normalizeMailProvider(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
   switch (normalized) {
+    case 'custom':
     case HOTMAIL_PROVIDER:
     case '163':
     case '163-vip':
@@ -642,6 +643,13 @@ function isHotmailProvider(stateOrProvider) {
     ? stateOrProvider
     : stateOrProvider?.mailProvider;
   return provider === HOTMAIL_PROVIDER;
+}
+
+function isCustomMailProvider(stateOrProvider) {
+  const provider = typeof stateOrProvider === 'string'
+    ? stateOrProvider
+    : stateOrProvider?.mailProvider;
+  return provider === 'custom';
 }
 
 async function syncHotmailAccounts(accounts) {
@@ -1272,9 +1280,10 @@ function isGeneratedAliasProvider(provider) {
 }
 
 function shouldUseCustomRegistrationEmail(state = {}) {
-  return !isHotmailProvider(state)
-    && !isGeneratedAliasProvider(state.mailProvider)
-    && normalizeEmailGenerator(state.emailGenerator) === 'custom';
+  return isCustomMailProvider(state)
+    || (!isHotmailProvider(state)
+      && !isGeneratedAliasProvider(state.mailProvider)
+      && normalizeEmailGenerator(state.emailGenerator) === 'custom');
 }
 
 function buildGeneratedAliasEmail(state) {
@@ -4667,6 +4676,9 @@ async function executeStep3(state) {
 
 function getMailConfig(state) {
   const provider = state.mailProvider || 'qq';
+  if (provider === 'custom') {
+    return { provider: 'custom', label: '自定义邮箱' };
+  }
   if (provider === HOTMAIL_PROVIDER) {
     return { provider: HOTMAIL_PROVIDER, label: 'Hotmail（远程/本地）' };
   }
@@ -4726,6 +4738,36 @@ function getVerificationCodeStateKey(step) {
 
 function getVerificationCodeLabel(step) {
   return step === 4 ? '注册' : '登录';
+}
+
+async function confirmCustomVerificationStepBypass(step) {
+  const verificationLabel = getVerificationCodeLabel(step);
+  await addLog(`步骤 ${step}：当前为自定义邮箱模式，请手动在页面中输入${verificationLabel}验证码并进入下一页面。`, 'warn');
+
+  let response = null;
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: 'REQUEST_CUSTOM_VERIFICATION_BYPASS_CONFIRMATION',
+      payload: { step },
+    });
+  } catch {
+    throw new Error(`步骤 ${step}：无法打开确认弹窗，请先保持侧边栏打开后重试。`);
+  }
+
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+  if (!response?.confirmed) {
+    throw new Error(`步骤 ${step}：已取消手动${verificationLabel}验证码确认。`);
+  }
+
+  await setState({
+    lastEmailTimestamp: null,
+    signupVerificationRequestedAt: null,
+    loginVerificationRequestedAt: null,
+  });
+  await setStepStatus(step, 'skipped');
+  await addLog(`步骤 ${step}：已确认手动完成${verificationLabel}验证码输入，当前步骤已跳过。`, 'warn');
 }
 
 function getVerificationPollPayload(step, state, overrides = {}) {
@@ -5004,6 +5046,11 @@ async function executeStep4(state) {
     return;
   }
 
+  if (shouldUseCustomRegistrationEmail(state)) {
+    await confirmCustomVerificationStepBypass(4);
+    return;
+  }
+
   throwIfStopped();
   if (mail.provider === HOTMAIL_PROVIDER) {
     await addLog(`步骤 4：正在通过 ${mail.label} 轮询验证码...`);
@@ -5132,6 +5179,11 @@ async function runStep7Attempt(state) {
 
   if (prepareResult && prepareResult.error) {
     throw new Error(prepareResult.error);
+  }
+
+  if (shouldUseCustomRegistrationEmail(state)) {
+    await confirmCustomVerificationStepBypass(7);
+    return;
   }
 
   throwIfStopped();
