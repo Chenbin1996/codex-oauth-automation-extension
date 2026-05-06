@@ -57,6 +57,8 @@ const bundle = [
   extractFunction('isAddPhoneAuthState'),
   extractFunction('isMail2925ThreadTerminatedError'),
   extractFunction('isSignupPhonePasswordMismatchFailure'),
+  extractFunction('getSignupPhonePasswordMismatchRestartPayload'),
+  extractFunction('restartSignupPhonePasswordMismatchAttemptFromStep'),
   extractFunction('isSignupUserAlreadyExistsFailure'),
   extractFunction('getPostStep6AutoRestartDecision'),
   extractFunction('runAutoSequenceFromStep'),
@@ -621,7 +623,7 @@ return {
   assert.equal(events.logs.some(({ message }) => /已清空本轮注册手机号与接码订单/.test(message)), true);
 });
 
-test('auto-run restarts from step 1 immediately when step 3 detects phone/password mismatch', async () => {
+test('auto-run clears manual signup phone state when step 3 detects phone/password mismatch', async () => {
   const api = new Function(`
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
@@ -644,14 +646,8 @@ let currentState = {
   accountIdentifierType: 'phone',
   accountIdentifier: '+56988841722',
   signupPhoneNumber: '+56988841722',
-  signupPhoneActivation: {
-    activationId: 'act-1',
-    phoneNumber: '+56988841722',
-  },
-  signupPhoneCompletedActivation: {
-    activationId: 'act-1',
-    phoneNumber: '+56988841722',
-  },
+  signupPhoneActivation: null,
+  signupPhoneCompletedActivation: null,
   stepStatuses: {
     1: 'pending',
     2: 'pending',
